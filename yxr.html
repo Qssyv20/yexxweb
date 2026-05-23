@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YXR</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 100vw; height: 100vh; overflow: hidden;
+    background: linear-gradient(160deg, #2d142c 0%, #3d1c3a 15%, #5c2d4a 35%, #7a3b55 55%, #a0625a 75%, #c48965 100%);
+    font-family: 'Georgia', 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', 'Source Han Serif SC', serif;
+    user-select: none; -webkit-user-select: none;
+    touch-action: none;
+    cursor: grab;
+  }
+  body.drag-ring { cursor: grabbing; }
+  body.drag-photo { cursor: grabbing; }
+
+  .glow-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(255, 200, 180, 0.12) 0%, transparent 55%),
+      radial-gradient(ellipse at 70% 60%, rgba(255, 180, 160, 0.10) 0%, transparent 55%),
+      radial-gradient(ellipse at 50% 80%, rgba(255, 220, 200, 0.08) 0%, transparent 50%);
+  }
+
+  canvas { position: fixed; top: 0; left: 0; z-index: 0; pointer-events: none; }
+
+  .brand {
+    position: fixed; top: 34px; left: 44px; z-index: 20;
+    font-size: 24px; letter-spacing: 10px;
+    color: rgba(255, 220, 200, 0.75);
+    text-shadow: 0 0 40px rgba(255, 180, 160, 0.35);
+    pointer-events: none;
+  }
+
+  .top-bar {
+    position: fixed; top: 28px; right: 40px; z-index: 30;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .layout-btn {
+    padding: 7px 16px; border-radius: 16px;
+    border: 1px solid rgba(255, 200, 180, 0.22);
+    background: rgba(60, 20, 30, 0.4); backdrop-filter: blur(6px);
+    color: rgba(255, 210, 190, 0.6); font-size: 12px;
+    letter-spacing: 1px; cursor: pointer;
+    transition: all 0.3s; font-family: inherit;
+  }
+  .layout-btn:hover {
+    background: rgba(90, 30, 45, 0.6);
+    border-color: rgba(255, 190, 160, 0.5);
+    color: rgba(255, 220, 200, 0.85);
+  }
+  .layout-btn.active-layout {
+    background: rgba(120, 40, 55, 0.7);
+    border-color: rgba(255, 180, 150, 0.65);
+    color: rgba(255, 230, 210, 0.95);
+    box-shadow: 0 0 16px rgba(255, 140, 120, 0.25);
+  }
+  .btn-reset {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 1px solid rgba(255, 200, 180, 0.25);
+    background: rgba(60, 20, 30, 0.4); backdrop-filter: blur(6px);
+    color: rgba(255, 210, 190, 0.6); font-size: 14px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.3s; margin-left: 4px;
+  }
+  .btn-reset:hover {
+    background: rgba(90, 30, 45, 0.7);
+    border-color: rgba(255, 190, 160, 0.55);
+    box-shadow: 0 0 18px rgba(255, 150, 130, 0.25);
+  }
+
+  .photo-layer {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 1; pointer-events: none;
+  }
+
+  .photo {
+    perspective: 800px;
+    position: absolute;
+    width: var(--pw, 150px); height: var(--ph, 200px);
+    border-radius: var(--pr, 14px);
+    box-shadow:
+      0 6px 28px rgba(0, 0, 0, 0.35),
+      0 0 0 3px rgba(255, 220, 200, 0.25);
+    will-change: transform, left, top;
+    pointer-events: auto;
+    cursor: pointer;
+    transition: box-shadow 0.4s, filter 0.4s;
+  }
+
+  .photo::before {
+    content: '';
+    position: absolute;
+    inset: -40px -30px -50px -30px;
+    z-index: -1;
+    border-radius: 50%;
+      background:
+      radial-gradient(ellipse at 50% 40%, rgba(255, 175, 135, 0.65) 0%, rgba(255, 140, 90, 0.35) 30%, rgba(255, 100, 60, 0.14) 55%, transparent 72%),
+      radial-gradient(ellipse at 50% 70%, rgba(255, 200, 160, 0.40) 0%, transparent 55%);
+    filter: blur(16px);
+    transition: opacity 0.4s, filter 0.4s;
+    opacity: 0.85;
+  }
+
+  .photo::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: var(--pr, 14px);
+    pointer-events: none;
+    background: linear-gradient(
+      155deg,
+      rgba(255, 255, 255, 0.15) 0%,
+      rgba(255, 255, 255, 0.04) 25%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.06) 75%,
+      rgba(0, 0, 0, 0.15) 100%
+    );
+    transition: opacity 0.4s;
+  }
+  .photo img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: var(--pr, 14px); position: relative; z-index: 0; }
+
+  .photo.highlight {
+    z-index: 150 !important;
+    box-shadow:
+      0 14px 44px rgba(0, 0, 0, 0.4),
+      0 0 0 4px rgba(255, 200, 180, 0.55),
+      0 0 70px rgba(255, 150, 120, 0.28),
+      0 0 120px rgba(255, 180, 150, 0.14) !important;
+  }
+  .photo.highlight::before {
+    opacity: 1;
+    filter: blur(10px);
+    background:
+      radial-gradient(ellipse at 50% 40%, rgba(255, 190, 145, 0.78) 0%, rgba(255, 155, 105, 0.48) 30%, rgba(255, 115, 70, 0.2) 55%, transparent 72%),
+      radial-gradient(ellipse at 50% 70%, rgba(255, 215, 170, 0.50) 0%, transparent 55%);
+  }
+
+  .photo.dimmed { filter: brightness(0.3) blur(1.5px); }
+  .photo.dimmed::before { opacity: 0.15; }
+  .photo.dimmed::after { opacity: 0.2; }
+  .photo.enlarged {
+    z-index: 300 !important;
+    box-shadow:
+      0 20px 60px rgba(0, 0, 0, 0.5),
+      0 0 0 5px rgba(255, 200, 170, 0.7),
+      0 0 90px rgba(255, 150, 120, 0.4),
+      0 0 160px rgba(255, 170, 140, 0.2) !important;
+  }
+  .photo.enlarged::before {
+    opacity: 1;
+    filter: blur(8px);
+    inset: -55px -40px -65px -40px;
+    background:
+      radial-gradient(ellipse at 50% 40%, rgba(255, 200, 155, 0.82) 0%, rgba(255, 165, 115, 0.52) 30%, rgba(255, 125, 75, 0.22) 55%, transparent 72%),
+      radial-gradient(ellipse at 50% 70%, rgba(255, 225, 180, 0.55) 0%, transparent 55%);
+  }
+
+  .photo.picked {
+    z-index: 400 !important;
+    box-shadow:
+      0 24px 70px rgba(0, 0, 0, 0.55),
+      0 0 0 5px rgba(255, 210, 180, 0.8),
+      0 0 100px rgba(255, 160, 130, 0.45) !important;
+    transition: box-shadow 0.35s;
+  }
+  .photo.picked::before {
+    opacity: 1;
+    filter: blur(6px);
+    inset: -60px -45px -70px -45px;
+    background:
+      radial-gradient(ellipse at 50% 40%, rgba(255, 210, 160, 0.88) 0%, rgba(255, 175, 125, 0.58) 30%, rgba(255, 135, 85, 0.26) 55%, transparent 72%),
+      radial-gradient(ellipse at 50% 70%, rgba(255, 230, 185, 0.60) 0%, transparent 55%);
+  }
+
+  .center-poem {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 5; pointer-events: none;
+    font-size: 20px; letter-spacing: 4px;
+    color: rgba(255, 210, 190, 0.65);
+    text-align: center; line-height: 1.8;
+    text-shadow: 0 0 30px rgba(255, 160, 140, 0.35);
+    white-space: nowrap;
+    transition: none;
+  }
+  .center-poem .line {
+    display: block;
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .center-poem .line.in {
+    opacity: 1; transform: translateY(0);
+  }
+  .center-poem .line.out {
+    opacity: 0; transform: translateY(-12px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+
+  .hint {
+    position: fixed; bottom: 34px; left: 50%; transform: translateX(-50%);
+    z-index: 10; pointer-events: none;
+    font-size: 13px; letter-spacing: 3px;
+    color: rgba(255, 200, 180, 0.35);
+    transition: opacity 0.8s;
+  }
+
+  .burst-heart {
+    position: fixed; z-index: 45; pointer-events: none; font-size: 20px;
+    animation: burstOut 1.2s ease-out forwards;
+  }
+  @keyframes burstOut {
+    0% { opacity: 1; transform: translate(0, 0) scale(0.5); }
+    100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1.6); }
+  }
+
+  .music-btn {
+    position: fixed; bottom: 30px; right: 40px; z-index: 50;
+    width: 38px; height: 38px; border-radius: 50%;
+    border: 1px solid rgba(255, 200, 180, 0.25);
+    background: rgba(60, 20, 30, 0.4); backdrop-filter: blur(6px);
+    color: rgba(255, 210, 190, 0.55); font-size: 17px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.35s; font-family: inherit;
+    pointer-events: auto;
+  }
+  .music-btn:hover {
+    background: rgba(90, 30, 45, 0.7);
+    border-color: rgba(255, 190, 160, 0.55);
+    color: rgba(255, 220, 200, 0.85);
+    box-shadow: 0 0 18px rgba(255, 150, 130, 0.25);
+  }
+  .music-btn.playing {
+    color: rgba(255, 220, 200, 0.8);
+    box-shadow: 0 0 20px rgba(255, 150, 130, 0.2);
+    animation: musicGlow 2.5s ease-in-out infinite;
+  }
+  @keyframes musicGlow {
+    0%, 100% { box-shadow: 0 0 14px rgba(255, 150, 130, 0.15); }
+    50% { box-shadow: 0 0 26px rgba(255, 180, 150, 0.35); }
+  }
+
+  @media (max-width: 768px) {
+    .brand {
+      top: 14px; left: 14px;
+      font-size: 16px; letter-spacing: 5px;
+    }
+    .top-bar {
+      top: 10px; right: 8px;
+      gap: 4px;
+    }
+    .layout-btn {
+      padding: 5px 10px; border-radius: 12px;
+      font-size: 10px; letter-spacing: 0.5px;
+    }
+    .btn-reset {
+      width: 26px; height: 26px; font-size: 12px;
+      margin-left: 2px;
+    }
+    .center-poem {
+      font-size: 14px; letter-spacing: 2px;
+      white-space: normal; max-width: 85vw;
+    }
+    .hint {
+      font-size: 10px; letter-spacing: 1px;
+      bottom: 14px; max-width: 90vw;
+      white-space: normal; text-align: center;
+    }
+    .music-btn {
+      bottom: 14px; right: 14px;
+      width: 32px; height: 32px; font-size: 14px;
+    }
+    .photo {
+      box-shadow:
+        0 3px 14px rgba(0, 0, 0, 0.3),
+        0 0 0 2px rgba(255, 220, 200, 0.2) !important;
+    }
+    .photo::before {
+      inset: -18px -12px -22px -12px;
+      filter: blur(6px);
+    }
+    .photo::after { opacity: 0.6; }
+    .photo.highlight {
+      box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.35),
+        0 0 0 3px rgba(255, 200, 180, 0.45),
+        0 0 35px rgba(255, 150, 120, 0.2) !important;
+    }
+    .photo.highlight::before {
+      filter: blur(4px);
+    }
+    .photo.enlarged {
+      box-shadow:
+        0 12px 36px rgba(0, 0, 0, 0.45),
+        0 0 0 4px rgba(255, 200, 170, 0.55),
+        0 0 50px rgba(255, 150, 120, 0.3) !important;
+    }
+    .photo.enlarged::before {
+      inset: -25px -18px -30px -18px;
+      filter: blur(3px);
+    }
+    .photo.picked {
+      box-shadow:
+        0 14px 40px rgba(0, 0, 0, 0.5),
+        0 0 0 4px rgba(255, 210, 180, 0.65),
+        0 0 55px rgba(255, 160, 130, 0.35) !important;
+    }
+    .photo.picked::before {
+      inset: -28px -20px -34px -20px;
+      filter: blur(2px);
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="glow-overlay"></div>
+<canvas id="hearts"></canvas>
+<canvas id="bokeh"></canvas>
+
+<div class="brand">YXR</div>
+
+<div class="top-bar">
+  <button class="layout-btn" data-mode="0">环形</button>
+  <button class="layout-btn active-layout" data-mode="1">整齐</button>
+  <button class="layout-btn" data-mode="2">心形</button>
+  <button class="btn-reset" id="btnReset" title="重置 (R)">↺</button>
+</div>
+
+<audio id="bgm" loop preload="auto" src="Travel-T-Chenxi.mp3"></audio>
+<button class="music-btn playing" id="musicBtn" title="音乐 开/关">♫</button>
+<div class="photo-layer" id="photoLayer"></div>
+
+<div class="center-poem" id="poem"><span class="line" id="poemLine"></span></div>
+<div class="hint" id="hint">拖拽旋转 · 滚轮散开聚合 · 拖拽照片 · 双击放大 · R重置</div>
+
+<script>
+const photos = [
+  "111BF5EE398326CB21DE38A384F9F387.jpeg","271BB055E3C98B2FE44A76E36FADFBCE.jpg",
+  "2EA7661840B51A0936CB63C0191A2F1B.jpg","3961125C601B1586FDCF8535D6C1D6A3.jpeg",
+  "3A3E68B428663D6AC3347A98599D3B97.jpg","516AD12993E7172F0765B032F3348075.jpg",
+  "5CDF23EC3E3851838A5DF309C59FA022.jpg","71A57F563461C92F0918C2E964B9FB0E.jpg",
+  "750F7B6296685521DFC79585342FFAF3.jpg","7757B4AA47C386FAC10CDEB8D98F6179.jpg",
+  "846112C2C816F627F9351C3E71F01294.jpg","8FC90C1A30B7A299FE9E18C5D7DBA9DB.jpeg",
+  "9A5FD2A756C8888BB7EC67061A52B327.jpg","A529F19D03B549E162F62F2BB3CE97D9.jpeg",
+  "A7D2BEA252396AA04708A0D053F831ED.jpg","AD48F109050B4A2CFB8B956DE59C81BB.jpg",
+  "B3FE04FF3EB4EEEE085763D30FBEDC84.jpg","B95C72BF859A4FC07170B4C9D2AA7BF5.jpg",
+  "BB30EDCE2F89841D41DAD97F4650360B.jpg","D341D1C338410481E04E4EDBD5D9CD07.jpg",
+  "D944AD33AD199C8ACA581545C1F4C555.jpg","E38F308671C36BA741FD7FB180D59F5D.jpg",
+  "E7F122A5731D73FFBF10BCBAC057840E.jpeg","EF0A420D09603FE4B268C4B1400DCAA4.jpg"
+];
+
+// DOM
+const photoLayer = document.getElementById('photoLayer');
+const btnReset = document.getElementById('btnReset');
+const poem = document.getElementById('poem');
+const hint = document.getElementById('hint');
+const heartCanvas = document.getElementById('hearts');
+const hctx = heartCanvas.getContext('2d');
+const bokehCanvas = document.getElementById('bokeh');
+const bctx = bokehCanvas.getContext('2d');
+
+const count = photos.length;
+let photoW = 150, photoH = 200;
+let ringRadius = 350;
+const isMobile = () => window.innerWidth < 768;
+function updateSizes() {
+  const m = isMobile();
+  photoW = m ? 100 : 150;
+  photoH = m ? 133 : 200;
+  ringRadius = m ? 200 : 350;
+  const root = document.documentElement.style;
+  root.setProperty('--pw', photoW + 'px');
+  root.setProperty('--ph', photoH + 'px');
+  root.setProperty('--pr', (m ? 10 : 14) + 'px');
+  hint.textContent = m
+    ? '拖拽旋转 · 双指缩放 · 拖拽照片 · 双击放大 · R重置'
+    : '拖拽旋转 · 滚轮散开聚合 · 拖拽照片 · 双击放大 · R重置';
+}
+updateSizes();
+
+// ========== 状态 ==========
+const Layout = { RING: 0, GRID: 1, HEART: 2 };
+let layoutMode = Layout.GRID;
+
+let ringAngleY = 0, ringAngleX = 0.04;
+let targetAngleY = 0, targetAngleX = 0.04;
+let zoom = 1, targetZoom = 1;
+let scatterAmount = 0, targetScatter = 0;
+let isDraggingRing = false, prevX = 0, prevY = 0;
+let velocityX = 0, velocityY = 0;
+let autoRotate = false; // 开场动画期间不旋转
+
+let pickedPhoto = -1;
+let enlargedPhoto = -1;
+let pickOffsetX = 0, pickOffsetY = 0;
+
+// 开场爆炸动画
+let openingStart = 0;
+let openingDone = false;
+const OPENING_DUR = 5500; // 总时长，给最后发射的照片留飞行时间
+
+// 每张照片的发射参数（参考爱心.html 的 staggered flight）
+const flyParams = [];
+function buildFlyParams() {
+  flyParams.length = 0;
+  for (let i = 0; i < count; i++) {
+    const ang = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.7;
+    const dist = Math.max(window.innerWidth, window.innerHeight) * 0.6 + Math.random() * 400;
+    flyParams.push({
+      delay: i * 90 + Math.random() * 300,     // 交错延迟 (ms)
+      duration: 1800 + Math.random() * 1500,     // 飞行时长 (ms)
+      targetX: Math.cos(ang) * dist - photoW / 2, // 目标散开位置
+      targetY: Math.sin(ang) * dist * 0.65 - photoH / 2,
+      rotEnd: (Math.random() - 0.5) * 50,
+      scaleStart: 0.15 + Math.random() * 0.25,
+    });
+  }
+  // 按 delay 排序，让发射看起来有序
+  flyParams.sort((a, b) => a.delay - b.delay);
+}
+buildFlyParams();
+
+// 心形动画
+let heartFlyStart = 0;
+let heartSettled = false;
+let heartPulseStart = 0;
+const HEART_FLY_DUR = 3500;
+const HEART_PULSE_DUR = 2000;
+
+const dragOffsets = [];
+const photoEls = [];
+const scatterTargets = [];
+const smoothPos = [];
+
+// ========== 画布 ==========
+function resizeAll() {
+  const dpr = Math.min(devicePixelRatio, isMobile() ? 2 : 999);
+  heartCanvas.width = window.innerWidth * dpr;
+  heartCanvas.height = window.innerHeight * dpr;
+  bokehCanvas.width = window.innerWidth * dpr;
+  bokehCanvas.height = window.innerHeight * dpr;
+}
+resizeAll();
+window.addEventListener('resize', resizeAll);
+
+// ========== 爱心粒子 ==========
+class HeartParticle {
+  constructor() { this.reset(); this.y = Math.random() * window.innerHeight; }
+  reset() {
+    this.x = Math.random() * window.innerWidth;
+    this.y = window.innerHeight + 30;
+    this.size = Math.random() * 5.5 + 2;
+    this.speedY = Math.random() * 0.55 + 0.2;
+    this.speedX = (Math.random() - 0.5) * 0.35;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.wobbleSpd = Math.random() * 0.018 + 0.004;
+    this.opacity = Math.random() * 0.5 + 0.22;
+    this.sat = 35 + Math.random() * 35;
+    this.light = 70 + Math.random() * 20;
+  }
+  update() {
+    this.y -= this.speedY;
+    this.x += this.speedX + Math.sin(this.wobble) * 0.5;
+    this.wobble += this.wobbleSpd;
+    if (this.y < -30) this.reset();
+    if (this.x < -40) this.x = window.innerWidth + 40;
+    if (this.x > window.innerWidth + 40) this.x = -40;
+  }
+  draw(ctx, dpr) {
+    const alpha = this.opacity * (0.6 + 0.4 * Math.sin(this.wobble * 2.5));
+    const s = this.size;
+    ctx.save(); ctx.translate(this.x * dpr, this.y * dpr); ctx.scale(s / 14 * dpr, s / 14 * dpr);
+    ctx.globalAlpha = alpha;
+    ctx.beginPath(); ctx.moveTo(0, 4);
+    ctx.bezierCurveTo(-9, -6, -18, 4, 0, 20);
+    ctx.bezierCurveTo(18, 4, 9, -6, 0, 4);
+    ctx.closePath();
+    const g = ctx.createRadialGradient(0, -2, 0, 0, 10, 18);
+    g.addColorStop(0, `hsl(0, ${this.sat + 20}%, ${this.light + 10}%)`);
+    g.addColorStop(1, `hsl(10, ${this.sat}%, ${this.light - 5}%)`);
+    ctx.fillStyle = g;
+    ctx.shadowColor = `hsla(5, 60%, 75%, ${alpha * 0.45})`;
+    ctx.shadowBlur = 12 * dpr; ctx.fill();
+    ctx.restore();
+  }
+}
+const hearts = [];
+for (let i = 0; i < (isMobile() ? 80 : 200); i++) {
+  const h = new HeartParticle(); h.y = Math.random() * window.innerHeight;
+  hearts.push(h);
+}
+
+// ========== 柔光光斑 ==========
+class Bokeh {
+  constructor() {
+    this.x = Math.random() * window.innerWidth;
+    this.y = Math.random() * window.innerHeight;
+    this.radius = Math.random() * 55 + 25;
+    this.opacity = Math.random() * 0.055 + 0.018;
+    this.pulse = Math.random() * Math.PI * 2;
+    this.pulseSpd = Math.random() * 0.007 + 0.003;
+    this.driftX = (Math.random() - 0.5) * 0.12;
+    this.driftY = (Math.random() - 0.5) * 0.12;
+  }
+  update() {
+    this.pulse += this.pulseSpd;
+    this.x += this.driftX; this.y += this.driftY;
+    if (this.x < -80) this.x = window.innerWidth + 80;
+    if (this.x > window.innerWidth + 80) this.x = -80;
+    if (this.y < -80) this.y = window.innerHeight + 80;
+    if (this.y > window.innerHeight + 80) this.y = -80;
+  }
+  draw(ctx, dpr) {
+    const alpha = this.opacity * (0.55 + 0.45 * Math.sin(this.pulse));
+    const r = this.radius * (0.88 + 0.12 * Math.sin(this.pulse * 1.4));
+    const grad = ctx.createRadialGradient(this.x * dpr, this.y * dpr, 0, this.x * dpr, this.y * dpr, r * dpr);
+    grad.addColorStop(0, `rgba(255, 215, 185, ${alpha * 2.5})`);
+    grad.addColorStop(0.25, `rgba(255, 195, 165, ${alpha * 1.5})`);
+    grad.addColorStop(0.6, `rgba(255, 165, 145, ${alpha * 0.4})`);
+    grad.addColorStop(1, 'rgba(255, 140, 120, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect((this.x - r) * dpr, (this.y - r) * dpr, r * 2 * dpr, r * 2 * dpr);
+  }
+}
+const bokehs = [];
+for (let i = 0; i < (isMobile() ? 10 : 25); i++) bokehs.push(new Bokeh());
+
+// ========== 照片元素 ==========
+
+function genScatter(i) {
+  const a = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+  const d = Math.max(window.innerWidth, window.innerHeight) * 0.55 + Math.random() * 350;
+  return {
+    x: Math.cos(a) * d - photoW / 2,
+    y: Math.sin(a) * d * 0.65 - photoH / 2,
+    rot: (Math.random() - 0.5) * 45,
+    scale: 0.55 + Math.random() * 0.3,
+  };
+}
+
+photos.forEach((file, i) => {
+  const div = document.createElement('div');
+  div.className = 'photo';
+  div.dataset.index = i;
+  const img = document.createElement('img');
+  img.src = './' + file; img.alt = ''; img.loading = 'lazy';
+  div.appendChild(img);
+  photoLayer.appendChild(div);
+  photoEls.push(div);
+  dragOffsets.push({ x: 0, y: 0 });
+  scatterTargets.push(genScatter(i));
+  smoothPos.push({ x: 0, y: 0, scale: 0, rot: 0, rotY: 0 });
+});
+
+// ========== 布局位置计算 ==========
+function heartXY(t, scale) {
+  const x = scale * (16 * Math.sin(t) ** 3);
+  const y = -scale * (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+  return { x, y };
+}
+
+function getLayoutPos(i, mode, cx, cy, ay, ax, z) {
+  const n = count;
+  const frac = i / n;
+  switch (mode) {
+    case Layout.RING: {
+      const theta = frac * Math.PI * 2;
+      const a = theta + ay;
+      const depth = Math.cos(a);
+      const zOff = Math.sin(a) * ringRadius * 0.5;
+      const persp = 1000 / (1000 + zOff);
+      const x = cx + Math.cos(a) * ringRadius * z * persp - photoW / 2;
+      const y = cy + Math.sin(a) * ringRadius * 0.6 * z * persp * Math.cos(ax) - photoH / 2;
+      const scale = z * persp * (0.72 + 0.28 * ((depth + 1) / 2));
+      const rotY = Math.sin(a) * 35; return { x, y, scale, depth, rot: 0, rotY };
+    }
+    case Layout.GRID: {
+      const cols = Math.min(isMobile() ? 4 : 6, Math.ceil(Math.sqrt(n * 1.5)));
+      const rows = Math.ceil(n / cols);
+      const cellW = photoW * 0.9;
+      const cellH = photoH * 0.9;
+      const totalW = cols * cellW;
+      const totalH = rows * cellH;
+      const startX = cx - totalW / 2 + cellW / 2;
+      const startY = cy - totalH / 2 + cellH / 2;
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      return { x: startX + col * cellW - photoW / 2, y: startY + row * cellH - photoH / 2, scale: 0.82, depth: 1, rot: 0 };
+    }
+    case Layout.HEART: {
+      const t = (i / n) * Math.PI * 2;
+      const hs = isMobile() ? 11 : 18;
+      const { x: hx, y: hy } = heartXY(t, hs);
+      return {
+        x: cx + hx - photoW / 2,
+        y: cy + hy - photoH / 2,
+        scale: 0.72 + 0.14 * (1 - Math.sqrt(hx * hx + hy * hy) / (hs * 16)),
+        depth: 1,
+        rot: 0,
+      };
+    }
+    default: return getLayoutPos(i, Layout.RING, cx, cy, ay, ax, z);
+  }
+}
+
+// ========== 设置布局 ==========
+function setLayout(mode) {
+  layoutMode = mode;
+  dragOffsets.forEach(o => { o.x = 0; o.y = 0; });
+  unpickAll();
+  document.querySelectorAll('.layout-btn').forEach(b => {
+    b.classList.toggle('active-layout', parseInt(b.dataset.mode) === mode);
+  });
+  if (mode === Layout.HEART) {
+    heartFlyStart = performance.now();
+    heartSettled = false;
+    heartPulseStart = 0;
+    autoRotate = false;
+  } else {
+    heartFlyStart = 0;
+    heartSettled = false;
+    heartPulseStart = 0;
+    if (openingDone) autoRotate = true;
+  }
+}
+
+function unpickAll() {
+  if (pickedPhoto >= 0) { photoEls[pickedPhoto].classList.remove('picked'); pickedPhoto = -1; }
+  if (enlargedPhoto >= 0) { photoEls[enlargedPhoto].classList.remove('enlarged'); enlargedPhoto = -1; }
+  photoEls.forEach(el => el.classList.remove('dimmed'));
+  document.body.classList.remove('drag-photo');
+}
+
+// ========== 事件 ==========
+function resetAll() {
+  targetAngleY = 0; targetAngleX = 0.04; targetZoom = 1;
+  targetScatter = 0; scatterAmount = 0;
+  velocityX = 0; velocityY = 0;
+  autoRotate = true;
+  heartFlyStart = 0; heartSettled = false; heartPulseStart = 0;
+  dragOffsets.forEach(o => { o.x = 0; o.y = 0; });
+  unpickAll();
+  // 重置文本轮播
+  clearTimeout(poemTimer);
+  poemLine.classList.remove('in', 'out');
+  poemLine.textContent = '';
+  poemIdx = -1;
+  startPoemCycle();
+}
+
+btnReset.addEventListener('click', resetAll);
+
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'r') { e.preventDefault(); resetAll(); }
+  if (k === 'escape') { e.preventDefault(); unpickAll(); }
+  if (k === '1') { e.preventDefault(); setLayout(Layout.RING); }
+  if (k === '2') { e.preventDefault(); setLayout(Layout.GRID); }
+  if (k === '3') { e.preventDefault(); setLayout(Layout.HEART); }
+});
+
+document.querySelectorAll('.layout-btn').forEach(b => {
+  b.addEventListener('click', e => {
+    e.stopPropagation();
+    setLayout(parseInt(b.dataset.mode));
+  });
+});
+
+// ---- mousedown ----
+document.addEventListener('mousedown', e => {
+  const photo = e.target.closest('.photo');
+  if (e.target.closest('.top-bar')) return;
+  if (!photo) {
+    unpickAll();
+    // 心形定型后不允许旋转
+    if (layoutMode === Layout.HEART && heartSettled) return;
+    isDraggingRing = true; autoRotate = false;
+    prevX = e.clientX; prevY = e.clientY;
+    document.body.classList.add('drag-ring');
+    return;
+  }
+  const index = parseInt(photo.dataset.index);
+  if (enlargedPhoto >= 0) return;
+  if (pickedPhoto >= 0) photoEls[pickedPhoto].classList.remove('picked');
+  photoEls[index].classList.add('picked');
+  photoEls.forEach((el, i) => { if (i !== index) el.classList.add('dimmed'); });
+  pickedPhoto = index;
+  const rect = photo.getBoundingClientRect();
+  pickOffsetX = e.clientX - rect.left;
+  pickOffsetY = e.clientY - rect.top;
+  document.body.classList.add('drag-photo');
+});
+
+// ---- click: 取消放大 ----
+document.addEventListener('click', e => {
+  if (!e.target.closest('.photo') && enlargedPhoto >= 0) unpickAll();
+});
+
+// ---- dblclick ----
+document.addEventListener('dblclick', e => {
+  const photo = e.target.closest('.photo');
+  if (!photo) {
+    heartBurst(e.clientX, e.clientY);
+    return;
+  }
+  e.stopPropagation();
+  const index = parseInt(photo.dataset.index);
+  if (enlargedPhoto === index) { unpickAll(); }
+  else {
+    unpickAll();
+    enlargedPhoto = index;
+    photoEls[index].classList.add('enlarged');
+    photoEls.forEach((el, i) => { if (i !== index) el.classList.add('dimmed'); });
+  }
+});
+
+document.addEventListener('mousemove', e => {
+  if (pickedPhoto >= 0) {
+    const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    const tx = e.clientX - pickOffsetX - photoW / 2;
+    const ty = e.clientY - pickOffsetY - photoH / 2;
+    const el = photoEls[pickedPhoto];
+    const pos = getLayoutPos(pickedPhoto, layoutMode, cx, cy, ringAngleY, ringAngleX, zoom);
+    dragOffsets[pickedPhoto].x = tx - pos.x;
+    dragOffsets[pickedPhoto].y = ty - pos.y;
+    el.style.left = tx + 'px';
+    el.style.top = ty + 'px';
+    el.style.transform = 'scale(1.1)';
+    el.style.zIndex = '400';
+    return;
+  }
+  if (!isDraggingRing) return;
+  const dx = e.clientX - prevX;
+  const dy = e.clientY - prevY;
+  targetAngleY += dx * 0.007;
+  targetAngleX -= dy * 0.005;
+  targetAngleX = Math.max(-0.5, Math.min(0.5, targetAngleX));
+  prevX = e.clientX; prevY = e.clientY;
+  velocityX = dx * 0.007; velocityY = -dy * 0.005;
+});
+
+document.addEventListener('mouseup', () => {
+  isDraggingRing = false;
+  document.body.classList.remove('drag-ring');
+  if (pickedPhoto >= 0) {
+    photoEls[pickedPhoto].classList.remove('picked');
+    photoEls.forEach(el => el.classList.remove('dimmed'));
+    pickedPhoto = -1;
+    document.body.classList.remove('drag-photo');
+  }
+});
+
+// 悬停
+document.addEventListener('mouseover', e => {
+  const photo = e.target.closest('.photo');
+  if (photo && pickedPhoto < 0 && enlargedPhoto < 0) photo.classList.add('highlight');
+});
+document.addEventListener('mouseout', e => {
+  const photo = e.target.closest('.photo');
+  if (photo) photo.classList.remove('highlight');
+});
+
+// 滚轮
+document.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (layoutMode === Layout.HEART && heartSettled) return;
+  targetScatter += e.deltaY * 0.0015;
+  targetScatter = Math.max(0, Math.min(1, targetScatter));
+}, { passive: false });
+
+// ========== 触摸事件 (移动端) ==========
+let pinchStartDist = 0;
+let pinchStartScatter = 0;
+let lastTapTime = 0;
+let lastTapX = 0, lastTapY = 0;
+
+document.addEventListener('touchstart', e => {
+  if (e.touches.length === 2) {
+    pinchStartDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    pinchStartScatter = targetScatter;
+    unpickAll();
+    return;
+  }
+  if (e.touches.length !== 1) return;
+  const touch = e.touches[0];
+
+  // 双击检测
+  const now = Date.now();
+  if (now - lastTapTime < 300 && Math.abs(touch.clientX - lastTapX) < 20 && Math.abs(touch.clientY - lastTapY) < 20) {
+    const photo = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.photo');
+    if (photo) {
+      const index = parseInt(photo.dataset.index);
+      if (enlargedPhoto === index) { unpickAll(); }
+      else {
+        unpickAll();
+        enlargedPhoto = index;
+        photoEls[index].classList.add('enlarged');
+        photoEls.forEach((el, i) => { if (i !== index) el.classList.add('dimmed'); });
+      }
+    } else {
+      heartBurst(touch.clientX, touch.clientY);
+    }
+    lastTapTime = 0;
+    return;
+  }
+  lastTapTime = now;
+  lastTapX = touch.clientX;
+  lastTapY = touch.clientY;
+
+  const photo = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.photo');
+  if (e.target.closest('.top-bar')) return;
+  if (!photo) {
+    unpickAll();
+    if (layoutMode === Layout.HEART && heartSettled) return;
+    isDraggingRing = true; autoRotate = false;
+    prevX = touch.clientX; prevY = touch.clientY;
+    document.body.classList.add('drag-ring');
+    return;
+  }
+  const index = parseInt(photo.dataset.index);
+  if (enlargedPhoto >= 0) return;
+  if (pickedPhoto >= 0) photoEls[pickedPhoto].classList.remove('picked');
+  photoEls[index].classList.add('picked');
+  photoEls.forEach((el, i) => { if (i !== index) el.classList.add('dimmed'); });
+  pickedPhoto = index;
+  const rect = photo.getBoundingClientRect();
+  pickOffsetX = touch.clientX - rect.left;
+  pickOffsetY = touch.clientY - rect.top;
+  document.body.classList.add('drag-photo');
+}, { passive: false });
+
+document.addEventListener('touchmove', e => {
+  if (e.touches.length === 2 && pinchStartDist > 0) {
+    e.preventDefault();
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    const delta = (dist - pinchStartDist) * 0.003;
+    targetScatter = Math.max(0, Math.min(1, pinchStartScatter - delta));
+    return;
+  }
+  if (pickedPhoto >= 0 || isDraggingRing) e.preventDefault();
+  if (e.touches.length !== 1) return;
+  const touch = e.touches[0];
+
+  if (pickedPhoto >= 0) {
+    const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    const tx = touch.clientX - pickOffsetX - photoW / 2;
+    const ty = touch.clientY - pickOffsetY - photoH / 2;
+    const el = photoEls[pickedPhoto];
+    const pos = getLayoutPos(pickedPhoto, layoutMode, cx, cy, ringAngleY, ringAngleX, zoom);
+    dragOffsets[pickedPhoto].x = tx - pos.x;
+    dragOffsets[pickedPhoto].y = ty - pos.y;
+    el.style.left = tx + 'px';
+    el.style.top = ty + 'px';
+    el.style.transform = 'scale(1.1)';
+    el.style.zIndex = '400';
+    return;
+  }
+  if (!isDraggingRing) return;
+  const dx = touch.clientX - prevX;
+  const dy = touch.clientY - prevY;
+  targetAngleY += dx * 0.007;
+  targetAngleX -= dy * 0.005;
+  targetAngleX = Math.max(-0.5, Math.min(0.5, targetAngleX));
+  prevX = touch.clientX; prevY = touch.clientY;
+  velocityX = dx * 0.007; velocityY = -dy * 0.005;
+}, { passive: false });
+
+document.addEventListener('touchend', e => {
+  if (e.touches.length === 0) {
+    pinchStartDist = 0;
+    isDraggingRing = false;
+    document.body.classList.remove('drag-ring');
+    if (pickedPhoto >= 0) {
+      photoEls[pickedPhoto].classList.remove('picked');
+      photoEls.forEach(el => el.classList.remove('dimmed'));
+      pickedPhoto = -1;
+      document.body.classList.remove('drag-photo');
+    }
+  }
+});
+
+// ========== 爱心爆发 ==========
+function heartBurst(x, y) {
+  const emojis = ['💕','💖','💗','💝','❤️','💜','💞','💟','❣️','🩷','💓','💛'];
+  for (let i = 0; i < 16; i++) {
+    const el = document.createElement('div');
+    el.className = 'burst-heart';
+    el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+    el.style.left = x + 'px'; el.style.top = y + 'px';
+    el.style.setProperty('--dx', (Math.random() - 0.5) * 220 + 'px');
+    el.style.setProperty('--dy', (Math.random() - 0.5) * 220 + 'px');
+    el.style.animationDuration = (Math.random() * 0.7 + 0.8) + 's';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 1500);
+  }
+}
+
+// ========== 循环文本 ==========
+const poemLines = [
+  '我的心只给你一个人 满天繁星作证',
+  '你是我始料不及的遇见 也是我突如其来的欢喜',
+  '茉莉雪季的尾调是你浅淡的瞳色',
+  '你在身边 在你身边',
+  '细水长流 我想陪你的何止这一个冬',
+  '一朝相识百日思',
+  '如果我有两颗心我会爱上你两次',
+  '这一生冗长苦涩我想与你同行',
+  '我奉上真心 只愿得到最真挚的缪斯',
+  '总有些惊奇的际遇 比方说当我遇见你',
+  '牵起的手 是两颗心的桥',
+  '和你 幸福无限蔓延',
+  '爱很奇妙 它让一棵树变得不再木讷',
+];
+let poemIdx = 0;
+const poemLine = document.getElementById('poemLine');
+let poemTimer = null;
+
+function showNextPoem() {
+  const line = poemLine;
+  // 出场动画
+  if (line.textContent) {
+    line.classList.remove('in');
+    line.classList.add('out');
+  }
+  // 等出场动画结束再换文字入场
+  setTimeout(() => {
+    poemIdx = (poemIdx + 1) % poemLines.length;
+    line.textContent = poemLines[poemIdx];
+    line.classList.remove('out');
+    // 强制回流后播放入场
+    void line.offsetWidth;
+    line.classList.add('in');
+  }, line.textContent ? 500 : 50);
+
+  poemTimer = setTimeout(showNextPoem, 2600); // 2s停留 + 0.6s动画
+}
+
+// 开场爆炸结束前不显示文字，结束后开始轮播
+function startPoemCycle() {
+  poemTimer = setTimeout(showNextPoem, 500);
+}
+
+// ========== 开场爆炸 ==========
+openingStart = performance.now();
+
+// ========== 动画循环 ==========
+function animate(timestamp) {
+  const dpr = devicePixelRatio;
+  const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+
+  // ---- 开场爆炸动画（参考爱心.html 卡片飞入样式）----
+  if (!openingDone) {
+    const elapsed = timestamp - openingStart;
+    let allDone = true;
+
+    photoEls.forEach((div, i) => {
+      const fp = flyParams[i];
+      const localT = (elapsed - fp.delay) / fp.duration; // 该照片的本地进度
+      const settlePos = getLayoutPos(i, Layout.GRID, cx, cy, 0, 0, 1);
+
+      if (localT < 0) {
+        // 还没轮到：藏在中心，极小
+        div.style.left = (cx - photoW / 2) + 'px';
+        div.style.top = (cy - photoH / 2) + 'px';
+        div.style.transform = 'scale(0.1)';
+        div.style.opacity = '0';
+        div.style.zIndex = i;
+        smoothPos[i] = { x: cx - photoW / 2, y: cy - photoH / 2, scale: 0.1, rot: 0, rotY: 0 };
+        allDone = false;
+        return;
+      }
+
+      // 参考文件 keyframes 映射：散开→overshoot→归位
+      // 0%→18% visible, 18%→45% 部分外移, 45%→70% overshoot, 70%→88% 回收, 88%→100% 定型
+      let ft;
+      if (localT < 0.18) {
+        ft = (localT / 0.18) * 0.2;               // 0 → 0.2
+      } else if (localT < 0.45) {
+        ft = 0.2 + (localT - 0.18) / 0.27 * 0.95; // 0.2 → 1.15 (overshoot)
+      } else if (localT < 0.7) {
+        ft = 1.15 - (localT - 0.45) / 0.25 * 0.55; // 1.15 → 0.6
+      } else if (localT < 1) {
+        ft = 0.6 + (localT - 0.7) / 0.3 * 0.4;    // 0.6 → 1.0
+      } else {
+        ft = 1;
+      }
+      ft = Math.max(0, Math.min(1, ft));
+
+      // 从中心飞向散开目标，再归位到环
+      const fromX = cx - photoW / 2;
+      const fromY = cy - photoH / 2;
+      const midX = fromX + (fp.targetX - fromX) * ft;
+      const midY = fromY + (fp.targetY - fromY) * ft;
+      const tx = midX + (settlePos.x - midX) * Math.max(0, (localT - 0.45) / 0.55);
+      const ty = midY + (settlePos.y - midY) * Math.max(0, (localT - 0.45) / 0.55);
+      const tScale = fp.scaleStart + (settlePos.scale - fp.scaleStart) * ft + ft * 0.25;
+      const tRot = fp.rotEnd * (1 - ft);
+      const opacity = localT < 0.18
+        ? localT / 0.18
+        : 1;
+
+      const sp = smoothPos[i];
+      sp.x += (tx - sp.x) * 0.22;
+      sp.y += (ty - sp.y) * 0.22;
+      sp.scale += (tScale - sp.scale) * 0.22;
+      sp.rot += (tRot - sp.rot) * 0.22;
+        sp.rotY += ((0) - sp.rotY) * 0.22;
+
+      div.style.left = sp.x + 'px';
+      div.style.top = sp.y + 'px';
+      div.style.transform = `perspective(800px) rotateY(${sp.rotY}deg) rotate(${sp.rot}deg) scale(${sp.scale})`;
+      div.style.zIndex = i;
+      div.style.opacity = opacity;
+
+      if (localT < 1) allDone = false;
+    });
+
+    if (allDone || elapsed > OPENING_DUR) {
+      openingDone = true;
+      autoRotate = true;
+      startPoemCycle();
+      // 不平滑快照，让 smoothPos 自然 lerp 到目标位置
+    }
+  } else {
+    // ---- 正常交互模式 ----
+    if (autoRotate && !isDraggingRing && pickedPhoto < 0 && !(layoutMode === Layout.HEART && heartSettled)) {
+      targetAngleY += 0.002;
+    }
+
+    ringAngleY += (targetAngleY - ringAngleY) * 0.1;
+    ringAngleX += (targetAngleX - ringAngleX) * 0.1;
+    zoom += (targetZoom - zoom) * 0.12;
+
+    if (!(layoutMode === Layout.HEART && heartFlyStart > 0 && !heartSettled)) {
+      scatterAmount += (targetScatter - scatterAmount) * 0.08;
+    }
+
+    if (!isDraggingRing) {
+      targetAngleY += velocityX;
+      targetAngleX += velocityY;
+      velocityX *= 0.95; velocityY *= 0.95;
+    }
+
+    const t = 1 - Math.pow(1 - scatterAmount, 2.5);
+
+    // 心形飞入进度
+    let heartFlyT = 1;
+    let heartPulseS = 1;
+    if (layoutMode === Layout.HEART && heartFlyStart > 0) {
+      const now = performance.now();
+      if (!heartSettled) {
+        const elapsed = now - heartFlyStart;
+        heartFlyT = Math.min(1, elapsed / HEART_FLY_DUR);
+        // 平滑缓出，无 overshoot
+        heartFlyT = 1 - Math.pow(1 - heartFlyT, 3);
+
+        if (elapsed >= HEART_FLY_DUR) {
+          heartSettled = true;
+          heartPulseStart = now;
+          heartFlyT = 1;
+        }
+      }
+      if (heartSettled) {
+        const pulseElapsed = now - heartPulseStart;
+        const pulseT = Math.min(1, pulseElapsed / HEART_PULSE_DUR);
+        heartPulseS = 1 + 0.05 * Math.sin(pulseT * Math.PI * 2) * (1 - pulseT);
+        scatterAmount = 0;
+        targetScatter = 0;
+      }
+    }
+
+    photoEls.forEach((div, i) => {
+      if (pickedPhoto === i) return;
+
+      const pos = getLayoutPos(i, layoutMode, cx, cy, ringAngleY, ringAngleX, zoom);
+      const sc = scatterTargets[i];
+      const off = dragOffsets[i];
+
+      let tx, ty, tScale, tRot, zIdx;
+
+      if (layoutMode === Layout.HEART && heartFlyStart > 0) {
+        const heartPos = getLayoutPos(i, Layout.HEART, cx, cy, 0, 0, 1);
+        if (!heartSettled) {
+          const ft = heartFlyT;
+          tx = sc.x + (heartPos.x - sc.x) * ft;
+          ty = sc.y + (heartPos.y - sc.y) * ft;
+          tScale = sc.scale + (heartPos.scale - sc.scale) * ft;
+          tRot = sc.rot * (1 - ft);
+          zIdx = i * 10; // 稳定 z-index，不会闪烁
+        } else {
+          tx = heartPos.x;
+          ty = heartPos.y;
+          tScale = heartPos.scale * heartPulseS;
+          tRot = 0;
+          zIdx = i * 10;
+        }
+      } else {
+        tx = pos.x + off.x + (sc.x - pos.x) * t;
+        ty = pos.y + off.y + (sc.y - pos.y) * t;
+        tScale = pos.scale + (sc.scale - pos.scale) * t;
+        tRot = sc.rot * t;
+        zIdx = Math.round((pos.depth || 0.5 + 0.5) * 50);
+      }
+
+      if (enlargedPhoto === i) tScale *= 1.4;
+
+      const sp = smoothPos[i];
+      const lerp = (layoutMode === Layout.HEART && !heartSettled) ? 0.18 : 0.14;
+      sp.x += (tx - sp.x) * lerp;
+      sp.y += (ty - sp.y) * lerp;
+      sp.scale += (tScale - sp.scale) * lerp;
+      sp.rot += (tRot - sp.rot) * lerp;
+        sp.rotY += ((pos.rotY || 0) - sp.rotY) * lerp;
+
+      div.style.left = sp.x + 'px';
+      div.style.top = sp.y + 'px';
+      div.style.transform = `perspective(800px) rotateY(${sp.rotY}deg) rotate(${sp.rot}deg) scale(${sp.scale})`;
+      div.style.zIndex = enlargedPhoto === i ? '300' : zIdx;
+      div.style.opacity = '1';
+    });
+  }
+
+  // 渲染爱心和光斑
+  hctx.clearRect(0, 0, heartCanvas.width, heartCanvas.height);
+  hearts.forEach(h => { h.update(); h.draw(hctx, dpr); });
+
+  bctx.clearRect(0, 0, bokehCanvas.width, bokehCanvas.height);
+  bokehs.forEach(b => { b.update(); b.draw(bctx, dpr); });
+
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+// ========== resize ==========
+window.addEventListener('resize', () => {
+  updateSizes();
+  photoEls.forEach((div, i) => { scatterTargets[i] = genScatter(i); });
+  buildFlyParams();
+  unpickAll();
+});
+
+// ========== BGM 控制 ==========
+const bgm = document.getElementById('bgm');
+bgm.volume = 0.5;
+const musicBtn = document.getElementById('musicBtn');
+
+function tryPlay() {
+  bgm.play().then(() => {
+    musicBtn.classList.add('playing');
+  }).catch(() => {
+    musicBtn.classList.remove('playing');
+  });
+}
+
+tryPlay();
+document.addEventListener('click', () => tryPlay(), { once: true });
+
+musicBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  if (bgm.paused) {
+    tryPlay();
+  } else {
+    bgm.pause();
+    musicBtn.classList.remove('playing');
+  }
+});
+
+
+console.log('💛 YXR');
+console.log('  1-3=布局(环形/整齐/心形) | 拖拽=旋转 | 滚轮=散开聚合 | 双击=放大');
+console.log('  R=重置 | ESC=取消');
+</script>
+</body>
+</html>
